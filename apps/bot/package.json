@@ -1,0 +1,29 @@
+{
+  "name": "@buttonwood/bot",
+  "version": "0.1.0",
+  "description": "Buttonwood: a Telegram trading companion for Solana and Phantom (paper trading, whale following, risk management).",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.6"
+  },
+  "scripts": {
+    "start": "node --env-file=.env --import tsx src/index.ts",
+    "dev": "node --env-file=.env --watch --import tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "wallet:create": "node --env-file=.env --import tsx scripts/create-wallet.ts",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.99.0",
+    "grammy": "^1.46.0",
+    "qrcode": "^1.5.4",
+    "tsx": "^4.23.15"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "@types/qrcode": "^1.5.6",
+    "typescript": "^5.9.3"
+  }
+}

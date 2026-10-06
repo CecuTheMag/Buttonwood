@@ -1,0 +1,16 @@
+node_modules/
+.next/
+dist/
+
+# secrets: never commit
+.env
+.env.*
+!.env.example
+*.enc.json
+
+# local data
+*.db
+*.db-journal
+
+# bot memory (last seen time, last reported transaction)
+apps/bot/data/

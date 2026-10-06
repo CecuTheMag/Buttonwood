@@ -1,0 +1,173 @@
+import { botConnection, botKeypair, checkBotDeposits, networkBanner } from './botWallet.ts';
+import { config } from './config.ts';
+import { formatDuration } from './format.ts';
+import { connection } from './solana.ts';
+import { loadState, saveState } from './state.ts';
+import { COMMANDS, createBot } from './telegram.ts';
+import { runStrategies } from './trading/engine.ts';
+import { scheduledMessages } from './trading/performance.ts';
+import { pollWhales } from './trading/whales.ts';
+import { ensurePaperAccount } from './trading/store.ts';
+import { checkWallet } from './watcher.ts';
+
+const startedAt = Date.now();
+const state = loadState();
+ensurePaperAccount();
+
+// What happened before this start, captured before the heartbeat overwrites it.
+const downtime = state.lastSeenAt ? startedAt - state.lastSeenAt : undefined;
+const wasCleanShutdown = state.cleanShutdown === true;
+state.cleanShutdown = false;
+
+const time = (ms: number) => new Date(ms).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+
+async function status(): Promise<string> {
+  let rpc = '✅ Solana RPC reachable';
+  try {
+    await connection.getSlot();
+  } catch {
+    rpc = '❌ Solana RPC unreachable';
+  }
+  return [
+    '🟢 Online',
+    `Up for ${formatDuration(Date.now() - startedAt)} (since ${time(startedAt)})`,
+    downtime !== undefined ? `Last downtime: ${formatDuration(downtime)}` : 'First run',
+    rpc,
+    config.phantomAddress ? '👀 Watching your Phantom wallet' : '⚠️ No Phantom address set (OWNER_PHANTOM_ADDRESS)',
+    botKeypair ? `🤖 Bot wallet ${botKeypair.publicKey.toBase58()} · ${networkBanner}${await botRpcHealth()}` : '🤖 No bot wallet yet (npm run wallet:create)',
+  ].join('\n');
+}
+
+async function botRpcHealth(): Promise<string> {
+  try {
+    await botConnection.getSlot();
+    return '';
+  } catch {
+    return ' ❌ RPC unreachable';
+  }
+}
+
+const bot = createBot(startedAt, status);
+const notifyOwner = (text: string) =>
+  config.ownerId !== undefined ? bot.api.sendMessage(config.ownerId, text, { link_preview_options: { is_disabled: true } }) : undefined;
+
+// Fails fast on a bad token or no network; systemd restarts us and we try again.
+await bot.init();
+console.log(`Logged in to Telegram as @${bot.botInfo.username}`);
+
+if (botKeypair) console.log(`Bot wallet: ${botKeypair.publicKey.toBase58()} (${config.botWallet.network})`);
+
+if (config.ownerId === undefined) {
+  console.log('No TELEGRAM_OWNER_ID set: running in SETUP MODE. Send /start to the bot to get your ID.');
+} else {
+  await bot.api.setMyCommands(COMMANDS);
+
+  // Tell the owner we're back and what we missed.
+  const lines =
+    downtime === undefined
+      ? ['👋 Buttonwood is online for the first time. Send /help to see what I can do.']
+      : [
+          `🟢 Back online. I was offline for ${formatDuration(downtime)} (since ${time(state.lastSeenAt!)}).`,
+          wasCleanShutdown ? 'Reason: normal shutdown or restart.' : '⚠️ Reason: unexpected stop (crash, power loss, or network outage).',
+        ];
+  try {
+    const missed = await checkWallet(state, 'catch-up');
+    if (downtime !== undefined && config.phantomAddress) lines.push('', missed ?? '✅ No new activity on your Phantom wallet while I was offline.');
+  } catch (err) {
+    lines.push('', `⚠️ Couldn't check your wallet for missed activity: ${(err as Error).message}`);
+  }
+  try {
+    const deposits = await checkBotDeposits(state, 'catch-up');
+    if (deposits) lines.push('', deposits);
+  } catch (err) {
+    lines.push('', `⚠️ Couldn't check the bot wallet for missed deposits: ${(err as Error).message}`);
+  }
+  await notifyOwner(lines.join('\n'));
+}
+
+// Trading engine: runs every enabled strategy once a minute. The first tick runs now,
+// so DCA buys that came due while the bot was offline happen right away (once, not N times).
+let ticking = false;
+async function engineTick() {
+  if (ticking || config.ownerId === undefined) return;
+  ticking = true;
+  try {
+    for (const message of await runStrategies()) await notifyOwner(message);
+    for (const message of await scheduledMessages()) await notifyOwner(message);
+  } catch (err) {
+    console.error('Engine tick failed:', err);
+  } finally {
+    ticking = false;
+  }
+}
+await engineTick();
+const engineTimer = setInterval(engineTick, config.engineMs);
+
+// Whale following: separate, faster loop. Copy delay is the main cost of following, so poll often.
+let polling = false;
+async function whaleTick() {
+  if (polling || config.ownerId === undefined) return;
+  polling = true;
+  try {
+    for (const message of await pollWhales()) await notifyOwner(message);
+  } catch (err) {
+    console.warn('Whale poll failed:', (err as Error).message);
+  } finally {
+    polling = false;
+  }
+}
+await whaleTick();
+const whaleTimer = setInterval(whaleTick, config.whaleMs);
+
+// Heartbeat: lets the next start work out how long we were down.
+state.lastSeenAt = Date.now();
+saveState(state);
+const heartbeat = setInterval(() => {
+  state.lastSeenAt = Date.now();
+  saveState(state);
+}, config.heartbeatMs);
+
+// Live wallet watching while online.
+let checking = false;
+const walletTimer = setInterval(async () => {
+  if (checking || config.ownerId === undefined) return;
+  checking = true;
+  try {
+    const news = await checkWallet(state, 'live');
+    if (news) {
+      await notifyOwner(news);
+      saveState(state);
+    }
+  } catch (err) {
+    console.warn('Wallet check failed:', (err as Error).message);
+  }
+  try {
+    const deposits = await checkBotDeposits(state, 'live');
+    if (deposits) await notifyOwner(deposits);
+  } catch (err) {
+    console.warn('Bot deposit check failed:', (err as Error).message);
+  } finally {
+    checking = false;
+  }
+}, config.walletCheckMs);
+
+async function shutdown(signal: string) {
+  console.log(`${signal} received, shutting down.`);
+  clearInterval(heartbeat);
+  clearInterval(walletTimer);
+  clearInterval(engineTimer);
+  clearInterval(whaleTimer);
+  state.lastSeenAt = Date.now();
+  state.cleanShutdown = true;
+  saveState(state);
+  await bot.stop();
+  process.exit(0);
+}
+process.once('SIGINT', () => shutdown('SIGINT'));
+process.once('SIGTERM', () => shutdown('SIGTERM'));
+
+// Long polling. Messages sent while we were offline (kept by Telegram for up to 24h) are delivered now.
+await bot.start({
+  drop_pending_updates: false,
+  onStart: () => console.log('Listening for Telegram messages.'),
+});
