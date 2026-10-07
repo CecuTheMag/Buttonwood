@@ -13,7 +13,8 @@
     "dev": "node --env-file=.env --watch --import tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "wallet:create": "node --env-file=.env --import tsx scripts/create-wallet.ts",
-    "test": "node --import tsx --test test/*.test.ts"
+    "test": "node --import tsx --test test/*.test.ts",
+    "discover": "node --env-file=.env --import tsx scripts/discover.ts"
   },
   "dependencies": {
     "@solana/web3.js": "^1.99.0",

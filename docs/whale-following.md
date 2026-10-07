@@ -8,7 +8,7 @@ Buttonwood can follow wallets ("whales") and copy their trades into the **paper*
 
 ```mermaid
 flowchart TB
-    P[Poll each whale every 20s] --> T[New transaction]
+    P[Poll each whale every 30s] --> T[New transaction]
     T --> D[Read the whale's balance changes<br/>SOL + wrapped SOL + tokens, minus network fee]
     D --> C{Clean swap?}
     C -- no: transfer, LP, messy multi-token --> I[ignore]
@@ -62,12 +62,59 @@ Verdicts are cached for an hour. Change any threshold with `/copy`.
 
 **"worse price"** is the real cost of following: the gap between the whale's own fill (after its network fee) and yours. If that number is larger than the whale's typical gain per trade, copying them can't work, however good they are.
 
-## Finding whales
+## Autopilot: finding whales automatically
 
-Buttonwood doesn't pick wallets for you. Candidates can come from public top-trader lists (e.g. GMGN, Birdeye, Cielo) or wallets you've watched yourself. Prefer wallets that:
+Autopilot is **on by default**. It finds, follows, and replaces whales without you.
+
+```mermaid
+flowchart LR
+    H[Hunting ground<br/>allowlist + trending tokens<br/>that pass the safety rules] --> S[Recent swaps in those tokens]
+    S --> W[Wallets that made trades ≥ $200]
+    W --> E[Score each on its own<br/>last ~100 transactions]
+    E -->|meets the bar| F[Follow in paper]
+    E -->|doesn't| X[Remember for 7 days, skip]
+    F --> J{Judged on copy results}
+    J -->|losing| P[Auto-pause]
+    J -->|idle 3 days| D[Drop]
+    P & D --> R[Slot opens → rescan]
+```
+
+**The bar a wallet must clear** (on its own recent history, rebuilt from its transactions):
+
+| | Default | Why |
+|---|---|---|
+| Completed round trips | ≥ 5 | can't judge fewer |
+| Win rate | ≥ 50% | |
+| Return on what it sold | ≥ +5% | |
+| Median hold time | ≥ 10 min | faster can't be copied with a 30s delay |
+| Trades per day | ≤ 60 | more = bot or market maker |
+| Round trips in liquid tokens | ≥ 50% | we only buy liquid tokens |
+
+Wallets that pass are ranked by return × win rate × experience × liquidity, and the best fill the open slots (default 5). **A good history only earns a trial.** From then on, a whale is judged on what copying it actually earns.
+
+**Schedule:** a full scan every 24h; open slots are refilled every 8h. A scan takes ~8 minutes and ~3,000 RPC calls.
+
+**Expect it to be picky.** In testing, most active wallets failed: bots trading thousands of times a day, wallets losing money, or too little history. That's the point: the market is full of wallets not worth copying.
+
+**Needs a real RPC.** The public Solana RPC is far too rate-limited for discovery. A free [Helius](https://helius.dev) key works: discovery plus 5 whales polled every 30s fits the free tier.
+
+| Command | |
+|---|---|
+| `/autopilot` | Status |
+| `/autopilot run` | Scan now |
+| `/autopilot whales 5` | How many whales to follow |
+| `/autopilot off` / `on` | Manual mode / back to automatic |
+| `/candidates` | The last scored wallets, with their numbers and why they were rejected |
+| `npm run discover` | Dry-run scan from the command line (follows nobody) |
+
+You can still add wallets by hand (`/whale add`). Manual whales are never dropped for inactivity.
+
+## Picking whales by hand
+
+Candidates can come from public top-trader lists (e.g. GMGN, Birdeye, Cielo) or wallets you've watched yourself. Prefer wallets that:
 
 - trade tokens with real liquidity, not only brand-new launches
-- hold for minutes to days, not seconds (you can't copy a sniper 15 seconds late)
+- hold for minutes to days, not seconds (you can't copy a sniper 30 seconds late)
 - make fewer, larger trades
 
 Then let the paper results decide.

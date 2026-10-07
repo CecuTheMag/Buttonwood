@@ -16,8 +16,10 @@
 - Strategies: **DCA** (buy $X every N hours) and **take-profit / stop-loss** on any position
 - Manual `/buy` and `/sell`; trade history; realized and unrealized PnL
 
-**🐋 Whale following**
-- Follow any wallet and copy its swaps into the paper account
+**🐋 Whale following, on autopilot**
+- **Finds whales by itself:** scans traders in liquid tokens, rebuilds each wallet's recent round trips, and follows only those with a real edge (win rate, return, copyable hold times, not bots)
+- Drops idle whales, auto-pauses losing ones, and refills the slots with new candidates
+- Or follow any wallet by hand
 - **Token safety check** before every copied buy: liquidity, holders, age, mint and freeze authority, holder concentration, and a **buy-then-sell quote** that catches honeypots
 - One copy per token per whale; late buys aren't copied; sells always are
 - **Copy stop-loss**, and **auto-pause** for whales whose copies lose money
@@ -40,6 +42,7 @@
 **🔁 Always on**
 - Runs as a systemd service: starts at boot and restarts after crashes
 - After downtime it reports how long it was off, whether it crashed, and what it missed: wallet activity, deposits, and DCA buys that came due (bought once, not N times)
+- Health monitor: alerts you if any background job keeps failing, and again when it recovers
 
 ## How it works
 
@@ -87,7 +90,7 @@ All settings live in `apps/bot/.env` (never commit it). Trading limits and copy 
 | `TELEGRAM_BOT_TOKEN` | ✅ | | From @BotFather. Secret. |
 | `TELEGRAM_OWNER_ID` | ✅ | | Your numeric Telegram ID. Empty = setup mode. |
 | `OWNER_PHANTOM_ADDRESS` | ✅ | | Watched wallet, and the **only** withdrawal destination |
-| `SOLANA_RPC_URL` | | public mainnet | A [Helius](https://helius.dev) or QuickNode URL is strongly recommended for whale following |
+| `SOLANA_RPC_URL` | | public mainnet | **Needed for autopilot:** a [Helius](https://helius.dev) URL (a bare Helius key works too). The public RPC is too rate-limited. |
 | `BOT_WALLET_NETWORK` | | `devnet` | `devnet` or `mainnet` |
 | `BOT_WALLET_RPC_URL` | | per network | |
 | `BOT_KEY_PASSPHRASE` | | | Written by `npm run wallet:create`. Secret. |
@@ -118,7 +121,7 @@ The essentials are below; the full reference is in [docs/telegram-bot.md](docs/t
 | `/paper` · `/performance` · `/readiness` · `/report` | Portfolio, results, go-live checklist, daily report |
 | `/buy SOL 10` · `/sell SOL 50` | Manual paper trades |
 | `/dca SOL 5 24` · `/tpsl SOL 15 8` · `/strategies` | Strategies |
-| `/whale add <addr> <name>` · `/whales` · `/copy` | Whale following |
+| `/autopilot` · `/candidates` · `/whales` · `/whale add <addr> <name>` · `/copy` | Whale following |
 | `/limits` · `/stop` · `/resume` | Risk controls |
 | `/balance` · `/fund` · `/withdraw` · `/transfers` | Wallets |
 | `/status` · `/help` | Health, help |
@@ -137,7 +140,8 @@ npm run typecheck
 ```
 apps/bot/
 ├── src/
-│   ├── index.ts            startup, offline catch-up, timers (engine 60s, whales 20s, heartbeat 30s)
+│   ├── index.ts            startup, offline catch-up, timers (engine 60s, whales 30s, autopilot 10m, heartbeat 30s)
+│   ├── health.ts           alerts when a background job keeps failing
 │   ├── telegram.ts         bot setup, owner guard, wallet commands
 │   ├── commands/           trading.ts, whales.ts: Telegram commands
 │   ├── trading/
@@ -147,6 +151,9 @@ apps/bot/
 │   │   ├── accounting.ts   average-cost positions (pure)
 │   │   ├── swapParser.ts   reads a wallet's swaps from a transaction (pure)
 │   │   ├── whales.ts       whale polling, copying, stop-loss, auto-pause
+│   │   ├── discovery.ts    finds and scores candidate whales
+│   │   ├── walletScore.ts  judges a wallet from its own trades (pure)
+│   │   ├── autopilot.ts    follows the best, drops idle and losing whales
 │   │   ├── tokenInfo.ts    token safety check
 │   │   ├── performance.ts  stats, drawdown, readiness gate, daily report
 │   │   ├── jupiter.ts      quote client
@@ -154,7 +161,7 @@ apps/bot/
 │   ├── botWallet.ts        encrypted bot wallet, deposits, withdrawals
 │   ├── watcher.ts          Phantom wallet activity
 │   └── keystore.ts         AES-256-GCM + scrypt key encryption
-├── scripts/create-wallet.ts
+├── scripts/                create-wallet.ts, discover.ts (dry-run whale scan)
 └── test/
 deploy/                     push.sh (deploy), install.sh (systemd service)
 docs/                       guides and design docs
@@ -173,7 +180,7 @@ docs/                       guides and design docs
 
 ## Status
 
-✅ Phantom watching · ✅ bot wallet (devnet) · ✅ paper trading + strategies · ✅ whale following · ⏳ **real-money execution is not built yet, on purpose.** It comes after the paper record passes `/readiness`. See the [roadmap](docs/roadmap.md).
+✅ Phantom watching · ✅ bot wallet (devnet) · ✅ paper trading + strategies · ✅ whale following + autopilot · ⏳ **real-money execution is not built yet, on purpose.** It comes after the paper record passes `/readiness`. See the [roadmap](docs/roadmap.md).
 
 ## Security
 

@@ -73,7 +73,7 @@ export function sentWhileOffline(ctx: Context, startedAt: number): boolean {
   return date !== undefined && date * 1000 < startedAt;
 }
 
-export function createBot(startedAt: number, status: () => Promise<string>): Bot {
+export function createBot(startedAt: number, status: () => Promise<string>, notify: (text: string) => unknown): Bot {
   const bot = new Bot(config.telegramToken);
   bot.catch((err) => console.error('Telegram handler error:', err.error));
 
@@ -249,7 +249,7 @@ export function createBot(startedAt: number, status: () => Promise<string>): Bot
   bot.command('status', async (ctx) => ctx.reply(await status()));
 
   registerTradingCommands(bot, startedAt);
-  registerWhaleCommands(bot);
+  registerWhaleCommands(bot, notify);
 
   bot.on('message', (ctx) => ctx.reply("I don't know that one yet. Try /help."));
 

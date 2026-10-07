@@ -42,7 +42,9 @@ The bot registers its own command menu on startup; no `/setcommands` needed.
 ### Whale following
 | Command | What it does |
 |---|---|
-| `/whale add <address> <name> [usd]` | Follow a wallet; copy `usd` per buy (default from `/copy`) |
+| `/autopilot` | Automatic whale finding (on by default): `on` · `off` · `run` · `whales 5` |
+| `/candidates` | Wallets the autopilot scored, with their numbers and why |
+| `/whale add <address> <name> [usd]` | Follow a wallet yourself; copy `usd` per buy (default from `/copy`) |
 | `/whale remove <name>` | Stop following |
 | `/whales` | Results per whale: copies, win rate, net PnL, delay and price vs the whale; pause/resume buttons |
 | `/copy` | Copy-trading settings · `/copy usd 25`, `/copy liquidity 500000`, … |
@@ -68,6 +70,8 @@ The bot registers its own command menu on startup; no `/setcommands` needed.
 - 📄 Every paper trade, with the reason, route, fee, and remaining cash, and every trade the risk manager blocked
 - 🐋 Every copied whale trade, plus how many seconds behind and how much worse a price you got than the whale
 - 🐋⏸ A whale auto-paused for losing money
+- 🤖 Autopilot scan results: who it started following and why, or why nobody qualified
+- ⚠️ A background job (whale following, trading engine, wallet watching, autopilot) failing 5 times in a row, and ✅ when it recovers
 - 🗓 A daily report at 20:00 UTC (`REPORT_HOUR_UTC`)
 - 🎓 A one-time message when the paper record passes `/readiness`
 - 🟢 "Back online" after any restart: how long it was down, whether it crashed, and what it missed

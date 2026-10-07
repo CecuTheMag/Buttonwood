@@ -1,10 +1,14 @@
 import { Bot, InlineKeyboard, type Context } from 'grammy';
 import { usd } from '../format.ts';
+import { autopilotTick, getAutopilot, isDiscovering, lastDiscoveryAt, setAutopilot } from '../trading/autopilot.ts';
 import { DEFAULT_COPY, getCopySettings, setCopySetting, type CopySettings } from '../trading/copySettings.ts';
+import { describeScore, recentCandidates } from '../trading/discovery.ts';
 import { formatDailyReport, formatPerformance, formatReadiness } from '../trading/performance.ts';
 import { addWhale, findWhale, formatWhaleStats, listWhales, removeWhale, setWhaleEnabled, whaleStats } from '../trading/whales.ts';
 
 export const WHALE_COMMANDS = [
+  { command: 'autopilot', description: 'Automatic whale finding: on / off / run / whales 5' },
+  { command: 'candidates', description: 'Wallets the autopilot scored, and why' },
   { command: 'whale', description: 'Follow a wallet: /whale add <address> <name> [usd]' },
   { command: 'whales', description: 'Followed wallets and how copying them is going' },
   { command: 'copy', description: 'Copy-trading settings: /copy usd 25' },
@@ -15,6 +19,7 @@ export const WHALE_COMMANDS = [
 
 export const WHALE_HELP = [
   '🐋 Whale following (paper)',
+  '/autopilot: finds, follows and replaces whales by itself (on by default) · /candidates',
   '/whale add <address> <name> [usd per copy]',
   '/whale remove <name>',
   '/whales: results per whale · /copy: settings',
@@ -37,7 +42,43 @@ const COPY_KEYS: Record<string, { key: keyof CopySettings; label: string; min: n
 
 const args = (ctx: Context) => (typeof ctx.match === 'string' ? ctx.match : '').trim().split(/\s+/).filter(Boolean);
 
-export function registerWhaleCommands(bot: Bot) {
+export function registerWhaleCommands(bot: Bot, notify: (text: string) => unknown) {
+  bot.command('autopilot', async (ctx) => {
+    const [sub, value] = args(ctx);
+    const action = sub?.toLowerCase();
+    if (action === 'on' || action === 'off') setAutopilot({ enabled: action === 'on' });
+    if (action === 'whales') {
+      const n = Number(value);
+      if (!Number.isInteger(n) || n < 1 || n > 20) return ctx.reply('Usage: /autopilot whales 5  (1–20)');
+      setAutopilot({ maxWhales: n });
+    }
+    if (action === 'run') {
+      if (isDiscovering()) return ctx.reply('A scan is already running.');
+      await ctx.reply('🤖 Scanning now. This takes a few minutes; I\'ll message you the result.');
+      autopilotTick(true).then((messages) => messages.forEach((m) => notify(m))).catch((err) => notify(`🤖 Scan failed: ${err.message}`));
+      return;
+    }
+    const s = getAutopilot();
+    const last = lastDiscoveryAt();
+    const following = listWhales().filter((w) => w.enabled);
+    await ctx.reply([
+      `🤖 Autopilot: ${s.enabled ? 'ON' : 'OFF'}${isDiscovering() ? ' (scanning now…)' : ''}`,
+      `Following ${following.length}/${s.maxWhales} whales (${following.filter((w) => w.auto).length} picked by autopilot)`,
+      `Last scan: ${last ? new Date(last).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }) : 'never'} · full rescan every ${s.discoverEveryHours}h, empty slots refilled after 8h`,
+      `Drops whales idle for ${s.inactiveDays} days; auto-pauses losers (see /copy)`,
+      '',
+      '/autopilot on · off · run · whales <n>',
+    ].join('\n'));
+  });
+
+  bot.command('candidates', async (ctx) => {
+    const list = recentCandidates(10);
+    if (list.length === 0) return ctx.reply('No wallets scored yet. /autopilot run to scan now.');
+    const lines = list.map((c) =>
+      `${c.score.eligible ? '✅' : '❌'} ${c.address.slice(0, 4)}…${c.address.slice(-4)} (${c.foundIn.join(', ')})\n   ${describeScore(c.score)}${c.score.eligible ? '' : `\n   ✗ ${c.score.reasons.join('; ')}`}`);
+    await ctx.reply(`🔎 Recently scored wallets\n\n${lines.join('\n\n')}`);
+  });
+
   bot.command('whale', async (ctx) => {
     const [sub, a, b, c] = args(ctx);
     if (sub === 'add' && a) {

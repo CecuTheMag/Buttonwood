@@ -23,3 +23,17 @@ export async function getUsdPrices(assets: string[]): Promise<Record<string, num
   }
   return prices;
 }
+
+/** Price and pool liquidity (USD) per mint, straight from Jupiter. Missing mints are left out. */
+export async function getPriceInfo(mints: string[]): Promise<Map<string, { price: number; liquidity: number }>> {
+  const info = new Map<string, { price: number; liquidity: number }>();
+  for (let i = 0; i < mints.length; i += 50) {
+    const res = await fetch(`${JUPITER_PRICE_URL}?ids=${mints.slice(i, i + 50).join(',')}`, { signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) throw new Error(`price API ${res.status}`);
+    const data = (await res.json()) as Record<string, { usdPrice?: number; liquidity?: number } | null>;
+    for (const [mint, entry] of Object.entries(data)) {
+      if (entry?.usdPrice != null) info.set(mint, { price: entry.usdPrice, liquidity: entry.liquidity ?? 0 });
+    }
+  }
+  return info;
+}

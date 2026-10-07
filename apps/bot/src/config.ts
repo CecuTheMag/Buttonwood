@@ -34,7 +34,23 @@ function parseNetwork(): 'devnet' | 'mainnet' {
   return network;
 }
 
-const rpcUrl = env('SOLANA_RPC_URL') ?? 'https://api.mainnet-beta.solana.com';
+/**
+ * Accepts a full RPC URL, or a bare Helius API key (a common mistake: pasting just the key),
+ * which is turned into the Helius mainnet URL. Anything else fails with a clear message.
+ */
+function parseRpcUrl(name: string, fallback: string): string {
+  const raw = env(name);
+  if (!raw) return fallback;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)) {
+    return `https://mainnet.helius-rpc.com/?api-key=${raw}`;
+  }
+  if (!/^https?:\/\//.test(raw)) {
+    throw new Error(`${name} must be a URL starting with https:// (e.g. https://mainnet.helius-rpc.com/?api-key=YOUR-KEY)`);
+  }
+  return raw;
+}
+
+const rpcUrl = parseRpcUrl('SOLANA_RPC_URL', 'https://api.mainnet-beta.solana.com');
 const network = parseNetwork();
 
 export const config = {
@@ -47,10 +63,10 @@ export const config = {
   heartbeatMs: 30_000,
   walletCheckMs: 60_000,
   engineMs: 60_000,
-  whaleMs: 20_000,
+  whaleMs: 30_000, // ~430k RPC calls/month for 5 whales: fits Helius's free tier with discovery
   botWallet: {
     network,
-    rpcUrl: env('BOT_WALLET_RPC_URL') ?? (network === 'devnet' ? 'https://api.devnet.solana.com' : rpcUrl),
+    rpcUrl: parseRpcUrl('BOT_WALLET_RPC_URL', network === 'devnet' ? 'https://api.devnet.solana.com' : rpcUrl),
     file: env('BOT_WALLET_FILE') ?? 'data/bot-wallet.enc.json',
     passphrase: env('BOT_KEY_PASSPHRASE'),
   },

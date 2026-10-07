@@ -4,6 +4,8 @@ import { formatDuration } from './format.ts';
 import { connection } from './solana.ts';
 import { loadState, saveState } from './state.ts';
 import { COMMANDS, createBot } from './telegram.ts';
+import { failingJobs, healthFailed, healthOk } from './health.ts';
+import { autopilotTick, getAutopilot } from './trading/autopilot.ts';
 import { runStrategies } from './trading/engine.ts';
 import { scheduledMessages } from './trading/performance.ts';
 import { pollWhales } from './trading/whales.ts';
@@ -35,6 +37,8 @@ async function status(): Promise<string> {
     rpc,
     config.phantomAddress ? '👀 Watching your Phantom wallet' : '⚠️ No Phantom address set (OWNER_PHANTOM_ADDRESS)',
     botKeypair ? `🤖 Bot wallet ${botKeypair.publicKey.toBase58()} · ${networkBanner}${await botRpcHealth()}` : '🤖 No bot wallet yet (npm run wallet:create)',
+    `Autopilot: ${getAutopilot().enabled ? 'on' : 'off'}`,
+    failingJobs().length ? `⚠️ Failing: ${failingJobs().join(', ')}` : '✅ All background jobs healthy',
   ].join('\n');
 }
 
@@ -47,9 +51,25 @@ async function botRpcHealth(): Promise<string> {
   }
 }
 
-const bot = createBot(startedAt, status);
 const notifyOwner = (text: string) =>
-  config.ownerId !== undefined ? bot.api.sendMessage(config.ownerId, text, { link_preview_options: { is_disabled: true } }) : undefined;
+  config.ownerId !== undefined
+    ? bot.api.sendMessage(config.ownerId, text.slice(0, 4000), { link_preview_options: { is_disabled: true } }).catch((err) => console.error('Telegram send failed:', err.message))
+    : undefined;
+const bot = createBot(startedAt, status, notifyOwner);
+
+/** Wraps a background job: runs it, forwards its messages, and alerts on repeated failures. */
+async function runJob(job: string, fn: () => Promise<string[] | string | null>) {
+  try {
+    const result = await fn();
+    for (const message of Array.isArray(result) ? result : result ? [result] : []) await notifyOwner(message);
+    const recovered = healthOk(job);
+    if (recovered) await notifyOwner(recovered);
+  } catch (err) {
+    console.warn(`${job} failed:`, (err as Error).message);
+    const alert = healthFailed(job, err);
+    if (alert) await notifyOwner(alert);
+  }
+}
 
 // Fails fast on a bad token or no network; systemd restarts us and we try again.
 await bot.init();
@@ -91,14 +111,9 @@ let ticking = false;
 async function engineTick() {
   if (ticking || config.ownerId === undefined) return;
   ticking = true;
-  try {
-    for (const message of await runStrategies()) await notifyOwner(message);
-    for (const message of await scheduledMessages()) await notifyOwner(message);
-  } catch (err) {
-    console.error('Engine tick failed:', err);
-  } finally {
-    ticking = false;
-  }
+  await runJob('Trading engine', runStrategies);
+  await runJob('Daily report', scheduledMessages);
+  ticking = false;
 }
 await engineTick();
 const engineTimer = setInterval(engineTick, config.engineMs);
@@ -108,16 +123,16 @@ let polling = false;
 async function whaleTick() {
   if (polling || config.ownerId === undefined) return;
   polling = true;
-  try {
-    for (const message of await pollWhales()) await notifyOwner(message);
-  } catch (err) {
-    console.warn('Whale poll failed:', (err as Error).message);
-  } finally {
-    polling = false;
-  }
+  await runJob('Whale following', pollWhales);
+  polling = false;
 }
 await whaleTick();
 const whaleTimer = setInterval(whaleTick, config.whaleMs);
+
+// Autopilot: checks every 10 minutes whether a whale scan is due. First check 2 minutes after startup.
+const autopilotJob = () => runJob('Autopilot', () => autopilotTick());
+const autopilotStart = setTimeout(autopilotJob, 2 * 60_000);
+const autopilotTimer = setInterval(autopilotJob, 10 * 60_000);
 
 // Heartbeat: lets the next start work out how long we were down.
 state.lastSeenAt = Date.now();
@@ -132,23 +147,13 @@ let checking = false;
 const walletTimer = setInterval(async () => {
   if (checking || config.ownerId === undefined) return;
   checking = true;
-  try {
+  await runJob('Phantom wallet watching', async () => {
     const news = await checkWallet(state, 'live');
-    if (news) {
-      await notifyOwner(news);
-      saveState(state);
-    }
-  } catch (err) {
-    console.warn('Wallet check failed:', (err as Error).message);
-  }
-  try {
-    const deposits = await checkBotDeposits(state, 'live');
-    if (deposits) await notifyOwner(deposits);
-  } catch (err) {
-    console.warn('Bot deposit check failed:', (err as Error).message);
-  } finally {
-    checking = false;
-  }
+    if (news) saveState(state);
+    return news;
+  });
+  await runJob('Bot wallet deposit check', () => checkBotDeposits(state, 'live'));
+  checking = false;
 }, config.walletCheckMs);
 
 async function shutdown(signal: string) {
@@ -157,6 +162,8 @@ async function shutdown(signal: string) {
   clearInterval(walletTimer);
   clearInterval(engineTimer);
   clearInterval(whaleTimer);
+  clearInterval(autopilotTimer);
+  clearTimeout(autopilotStart);
   state.lastSeenAt = Date.now();
   state.cleanShutdown = true;
   saveState(state);

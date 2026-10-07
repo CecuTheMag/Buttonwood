@@ -44,17 +44,26 @@ db.exec(`
   );
 `);
 
+// Migrations: autopilot-managed whales and a note on why they were picked
+for (const [column, definition] of [['auto', 'INTEGER NOT NULL DEFAULT 0'], ['note', 'TEXT']]) {
+  const columns = db.prepare('PRAGMA table_info(whales)').all() as { name: string }[];
+  if (!columns.some((c) => c.name === column)) db.exec(`ALTER TABLE whales ADD COLUMN ${column} ${definition}`);
+}
+
 export type Whale = {
   address: string;
   label: string;
   enabled: boolean;
+  auto: boolean;
+  note: string | null;
+  addedAt: number;
   usdPerTrade: number | null;
   lastSignature: string | null;
   pausedReason: string | null;
 };
 
 const toWhale = (r: Record<string, any>): Whale => ({
-  address: r.address, label: r.label, enabled: r.enabled === 1, usdPerTrade: r.usd_per_trade,
+  address: r.address, label: r.label, enabled: r.enabled === 1, auto: r.auto === 1, note: r.note, addedAt: r.added_at, usdPerTrade: r.usd_per_trade,
   lastSignature: r.last_signature, pausedReason: r.paused_reason,
 });
 
@@ -62,13 +71,18 @@ export const listWhales = () => (db.prepare('SELECT * FROM whales ORDER BY added
 export const findWhale = (query: string) =>
   listWhales().find((w) => w.address === query || w.label.toLowerCase() === query.toLowerCase());
 
-export function addWhale(address: string, label: string, usdPerTrade: number | null) {
+export function addWhale(address: string, label: string, usdPerTrade: number | null, opts: { auto?: boolean; note?: string } = {}) {
   new PublicKey(address); // throws on an invalid address
   db.prepare(
-    `INSERT INTO whales (address, label, usd_per_trade, added_at) VALUES (?, ?, ?, ?)
-     ON CONFLICT(address) DO UPDATE SET label = excluded.label, usd_per_trade = excluded.usd_per_trade, enabled = 1, paused_reason = NULL`,
-  ).run(address, label, usdPerTrade, Date.now());
+    `INSERT INTO whales (address, label, usd_per_trade, added_at, auto, note) VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(address) DO UPDATE SET label = excluded.label, usd_per_trade = excluded.usd_per_trade, enabled = 1,
+       paused_reason = NULL, auto = excluded.auto, note = excluded.note`,
+  ).run(address, label, usdPerTrade, Date.now(), opts.auto ? 1 : 0, opts.note ?? null);
 }
+
+/** Last time we saw this whale trade at all (any signal), or null. */
+export const lastWhaleActivity = (address: string) =>
+  (db.prepare('SELECT MAX(seen_at) AS t FROM whale_signals WHERE whale = ?').get(address) as { t: number | null }).t;
 export const removeWhale = (address: string) => db.prepare('DELETE FROM whales WHERE address = ?').run(address).changes > 0;
 export const setWhaleEnabled = (address: string, enabled: boolean, reason: string | null = null) =>
   db.prepare('UPDATE whales SET enabled = ?, paused_reason = ? WHERE address = ?').run(enabled ? 1 : 0, reason, address);
@@ -103,7 +117,7 @@ function recordSignal(s: {
   ).run(s.signature, s.whale, s.side, s.mint, s.whaleUsd, s.whalePrice, s.blockTime, s.action, s.detail, s.delaySec ?? null, s.slippagePct ?? null, Date.now());
 }
 
-function toTxBalances(tx: ParsedTransactionWithMeta): TxBalances {
+export function toTxBalances(tx: ParsedTransactionWithMeta): TxBalances {
   const entry = (b: NonNullable<NonNullable<ParsedTransactionWithMeta['meta']>['preTokenBalances']>[number]) => ({
     owner: b.owner, mint: b.mint, amount: b.uiTokenAmount.amount, decimals: b.uiTokenAmount.decimals,
   });
@@ -357,6 +371,6 @@ export function formatWhaleStats(whale: Whale, s: WhaleStats): string {
   const exec = s.avgSlippagePct !== null
     ? `\n   avg ${Math.round(s.avgDelaySec ?? 0)}s behind them, ${Math.abs(s.avgSlippagePct).toFixed(2)}% ${s.avgSlippagePct >= 0 ? 'worse' : 'better'} price`
     : '';
-  return `${status} ${whale.label} ${short(whale.address)}\n   ${s.copiedBuys} buys, ${s.copiedSells} sells${winRate} · net ${s.netUsd >= 0 ? '+' : '−'}${usd(Math.abs(s.netUsd))} (fees incl.) · ${s.skipped} skipped${exec}`;
+  return `${status} ${whale.auto ? '🤖 ' : ''}${whale.label} ${short(whale.address)}\n   ${s.copiedBuys} buys, ${s.copiedSells} sells${winRate} · net ${s.netUsd >= 0 ? '+' : '−'}${usd(Math.abs(s.netUsd))} (fees incl.) · ${s.skipped} skipped${exec}`;
 }
 
