@@ -130,9 +130,15 @@ export async function scheduledMessages(): Promise<string[]> {
   const messages: string[] = [];
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
-  if (now.getUTCHours() >= REPORT_HOUR_UTC && store.getSetting('last_report_date', '') !== today) {
+  const yesterday = new Date(now.getTime() - DAY).toISOString().slice(0, 10);
+  const last = store.getSetting<string>('last_report_date', '');
+  if (now.getUTCHours() >= REPORT_HOUR_UTC && last !== today) {
     store.setSetting('last_report_date', today);
     messages.push(await formatDailyReport());
+  } else if (last !== '' && last < yesterday && now.getUTCHours() < REPORT_HOUR_UTC) {
+    // The server was off at report time (e.g. it shuts down at night): send it now instead of skipping it
+    store.setSetting('last_report_date', yesterday);
+    messages.push(`(Missed yesterday's report while I was offline. Here it is now.)\n${await formatDailyReport()}`);
   }
   if (!store.getSetting('readiness_notified', false)) {
     const { ready } = readiness(await snapshot());
