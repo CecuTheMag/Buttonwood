@@ -145,7 +145,8 @@ export async function discoverWhales(maxEvaluate = 15, onProgress?: (text: strin
     ...(db.prepare('SELECT address FROM whale_candidates WHERE evaluated_at > ?').all(Date.now() - REEVALUATE_AFTER_MS) as { address: string }[]).map((r) => r.address),
   ]);
 
-  const seen = new Map<string, { count: number; tokens: Set<string> }>();
+  // Per wallet: biggest trade we saw, and how often it showed up in each token's recent swaps.
+  const seen = new Map<string, { count: number; maxUsd: number; perToken: Map<string, number>; tokens: Set<string> }>();
   for (const token of tokens) {
     onProgress?.(`scanning ${token.symbol}`);
     try {
@@ -154,8 +155,10 @@ export async function discoverWhales(maxEvaluate = 15, onProgress?: (text: strin
         if (!tx) continue;
         for (const { wallet, events } of tradesIn(tx, prices)) {
           if (skip.has(wallet) || !events.some((e) => e.usd >= settings.minWhaleTradeUsd)) continue;
-          const entry = seen.get(wallet) ?? { count: 0, tokens: new Set<string>() };
+          const entry = seen.get(wallet) ?? { count: 0, maxUsd: 0, perToken: new Map<string, number>(), tokens: new Set<string>() };
           entry.count++;
+          entry.maxUsd = Math.max(entry.maxUsd, ...events.map((e) => e.usd));
+          entry.perToken.set(token.symbol, (entry.perToken.get(token.symbol) ?? 0) + 1);
           entry.tokens.add(token.symbol);
           seen.set(wallet, entry);
         }
@@ -165,7 +168,13 @@ export async function discoverWhales(maxEvaluate = 15, onProgress?: (text: strin
     }
   }
 
-  const shortlist = [...seen.entries()].sort((a, b) => b[1].count - a[1].count).slice(0, maxEvaluate);
+  // Bots dominate any token's most recent swaps. A wallet showing up 4+ times in one token's last
+  // ~80 swaps is almost certainly one, so skip it, and rank the rest by their biggest trade.
+  const BOT_HITS = 4;
+  const shortlist = [...seen.entries()]
+    .filter(([, e]) => Math.max(...e.perToken.values()) < BOT_HITS)
+    .sort((a, b) => b[1].maxUsd - a[1].maxUsd)
+    .slice(0, maxEvaluate);
   const evaluated: Candidate[] = [];
   for (const [address, entry] of shortlist) {
     onProgress?.(`evaluating ${address.slice(0, 4)}…`);
