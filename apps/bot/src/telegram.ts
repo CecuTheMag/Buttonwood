@@ -16,6 +16,7 @@ import {
 } from './botWallet.ts';
 import { TRADING_COMMANDS, TRADING_HELP, registerTradingCommands } from './commands/trading.ts';
 import { WHALE_COMMANDS, WHALE_HELP, registerWhaleCommands } from './commands/whales.ts';
+import { LAB_COMMANDS, LAB_HELP, registerLabCommands } from './commands/lab.ts';
 import { config } from './config.ts';
 import { recentTransfers } from './db.ts';
 import { formatPortfolio } from './format.ts';
@@ -25,6 +26,7 @@ import { getHoldings } from './solana.ts';
 export const COMMANDS = [
   ...TRADING_COMMANDS,
   ...WHALE_COMMANDS,
+  ...LAB_COMMANDS,
   { command: 'balance', description: 'Phantom + bot wallet balances' },
   { command: 'fund', description: 'Add SOL to the bot wallet from Phantom' },
   { command: 'withdraw', description: 'Send SOL back to Phantom: /withdraw or /withdraw 0.1' },
@@ -35,11 +37,13 @@ export const COMMANDS = [
 ];
 
 const HELP = [
-  '🌳 Buttonwood (paper trading + whale following)',
+  '🌳 Buttonwood (paper trading · whale autopilot · strategy tournament)',
   '',
   ...TRADING_HELP,
   '',
   ...WHALE_HELP,
+  '',
+  ...LAB_HELP,
   '',
   `👛 Wallets · bot wallet on ${networkBanner}`,
   '/balance: your Phantom wallet and the bot wallet',
@@ -250,6 +254,7 @@ export function createBot(startedAt: number, status: () => Promise<string>, noti
 
   registerTradingCommands(bot, startedAt);
   registerWhaleCommands(bot, notify);
+  registerLabCommands(bot, notify);
 
   bot.on('message', (ctx) => ctx.reply("I don't know that one yet. Try /help."));
 

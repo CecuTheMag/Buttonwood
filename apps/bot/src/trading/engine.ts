@@ -6,6 +6,9 @@ import { getQuote, routeLabel } from './jupiter.ts';
 import { checkOrder, checkPriceDeviation } from './risk.ts';
 import * as store from './store.ts';
 import { changeVsEntry, runDca, runTpsl } from './strategies.ts';
+import { recordPrice } from './candles.ts';
+import { isSleeveRow, runSleeve } from './sleeves.ts';
+import { accrueYield } from './yield.ts';
 import type { Order, Position } from './types.ts';
 
 const HOUR = 3_600_000;
@@ -90,6 +93,7 @@ async function placeOrderNow(order: Order, prices: Prices): Promise<Outcome> {
       // Buying needs the allowlist or a passed safety check. Selling is always allowed: never get stuck in a position.
       allowed: order.side === 'sell' || isAllowlisted(token.mint) || order.vetted === true,
       positionUsdAfter: currentUsd + (order.side === 'buy' ? orderUsd : -orderUsd),
+      maxTradeUsd: order.budgetUsd,
     },
     { killSwitch: store.isStopped(), tradesLastHour: store.tradesSince(Date.now() - HOUR), portfolioUsd: totalUsd, dayStartUsd: dayStartUsd(totalUsd) },
     limits,
@@ -159,6 +163,8 @@ export function runStrategies(): Promise<string[]> {
       console.warn('Engine: no prices this tick, skipping');
       return [];
     }
+    for (const [mint, price] of prices) if (mint !== USDC_MINT) recordPrice(mint, price); // builds hourly history
+    accrueYield(prices);
     const { totalUsd } = valuePortfolio(store.getPositions(), prices);
     dayStartUsd(totalUsd);
     store.snapshotEquity(totalUsd);
@@ -170,6 +176,17 @@ export function runStrategies(): Promise<string[]> {
     const messages: string[] = [];
     const now = Date.now();
     for (const strategy of store.listStrategies().filter((s) => s.enabled)) {
+      if (isSleeveRow(strategy)) {
+        const outcome = await runSleeve(strategy, prices, (o) => placeOrderNow(o, prices));
+        if (outcome?.ok) {
+          lastRejection.delete(strategy.id);
+          messages.push(formatOutcome(outcome));
+        } else if (outcome && lastRejection.get(strategy.id) !== outcome.reason) {
+          lastRejection.set(strategy.id, outcome.reason);
+          messages.push(formatOutcome(outcome));
+        }
+        continue;
+      }
       let order: Order | null;
       if (strategy.type === 'dca') {
         order = runDca(strategy.id, strategy.params, strategy.state.lastRunAt, now);

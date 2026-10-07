@@ -1,4 +1,5 @@
 import type { Token } from '../tokens.ts';
+import type { Sleeve } from './sleeve.ts';
 
 export type Limits = {
   maxTradeUsd: number;        // largest single buy
@@ -32,6 +33,8 @@ export type Order = {
   whale?: string;
   /** passed the token safety check, so it may be bought even though it's not on the allowlist */
   vetted?: boolean;
+  /** a sleeve strategy's budget: its orders may be as large as its budget (it IS the size limit) */
+  budgetUsd?: number;
 };
 
 export type Position = { mint: string; amountRaw: bigint; costUsd: number };
@@ -39,6 +42,16 @@ export type Position = { mint: string; amountRaw: bigint; costUsd: number };
 export type DcaParams = { mint: string; usd: number; everyHours: number };
 export type TpslParams = { mint: string; takeProfitPct: number; stopLossPct: number };
 
+/** Trend / grid / rebalance: a strategy with its own budget ("sleeve"). */
+export type SleeveState = {
+  sleeve: Sleeve;
+  invested: number;     // total capital ever assigned (for return on capital)
+  peakValue: number;    // for drawdown
+  startedAt: number;
+  pausedReason?: string;
+};
+
 export type StrategyRow =
   | { id: number; type: 'dca'; params: DcaParams; enabled: boolean; state: { lastRunAt?: number } }
-  | { id: number; type: 'tpsl'; params: TpslParams; enabled: boolean; state: Record<string, never> };
+  | { id: number; type: 'tpsl'; params: TpslParams; enabled: boolean; state: Record<string, never> }
+  | { id: number; type: 'trend' | 'grid' | 'rebalance'; params: { mint: string } & Record<string, number | string>; enabled: boolean; state: SleeveState };

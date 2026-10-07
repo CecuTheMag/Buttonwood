@@ -1,11 +1,16 @@
 // Pure strategy logic: no I/O, so it's easy to test and later to backtest.
 import { toUi, tokenByMint } from '../tokens.ts';
+import { SLEEVE_STRATEGIES } from './strategyLib.ts';
 import type { DcaParams, Order, Position, StrategyRow, TpslParams } from './types.ts';
 
 const HOUR = 3_600_000;
 
 export function describeStrategy(s: StrategyRow): string {
   const symbol = tokenByMint(s.params.mint)?.symbol ?? '?';
+  if (s.type === 'trend' || s.type === 'grid' || s.type === 'rebalance') {
+    const def = SLEEVE_STRATEGIES[s.type];
+    return `${def.label} on ${symbol} (${def.describe({ ...def.defaults, ...s.params })}), budget $${s.state.sleeve.budgetUsd.toFixed(0)}`;
+  }
   if (s.type === 'dca') return `DCA: buy $${s.params.usd} of ${symbol} every ${s.params.everyHours}h`;
   const parts = [];
   if (s.params.takeProfitPct) parts.push(`take profit at +${s.params.takeProfitPct}%`);

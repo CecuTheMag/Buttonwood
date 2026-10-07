@@ -13,6 +13,7 @@ A step-by-step plan for building Buttonwood from zero knowledge. Each phase ends
 | 2. Bot wallet | ✅ done | devnet; `/fund`, `/withdraw`, deposit alerts |
 | 3. Paper trading | ✅ done | DCA, TP/SL, risk manager, fees, `/performance` |
 | 3½. Whale following | ✅ done | copy trading in paper, token safety, auto-pause, **autopilot discovery** ([guide](whale-following.md)) |
+| 3¾. Strategy lab | ✅ done | backtester, trend/grid/rebalance, tournament, simulated yield ([guide](strategies.md)) |
 | 4. Tiny live trading | ⏳ next | only after `/readiness` passes |
 | 5. AI companion | planned | |
 

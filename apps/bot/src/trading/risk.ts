@@ -6,6 +6,7 @@ export type RiskInput = {
   orderUsd: number;
   allowed: boolean;            // token is on the allowlist
   positionUsdAfter: number;    // value of this token's position if the order fills
+  maxTradeUsd?: number;        // overrides limits.maxTradeUsd (a sleeve's budget is its own size limit)
 };
 
 export type RiskState = {
@@ -28,8 +29,9 @@ export function checkOrder(order: RiskInput, state: RiskState, limits: Limits): 
     if (state.tradesLastHour >= limits.maxTradesPerHour) {
       return { ok: false, reason: `rate limit: already ${state.tradesLastHour} trades in the last hour` };
     }
-    if (order.orderUsd > limits.maxTradeUsd) {
-      return { ok: false, reason: `$${order.orderUsd.toFixed(2)} is above the $${limits.maxTradeUsd} max trade size` };
+    const maxTrade = Math.max(limits.maxTradeUsd, order.maxTradeUsd ?? 0);
+    if (order.orderUsd > maxTrade) {
+      return { ok: false, reason: `$${order.orderUsd.toFixed(2)} is above the $${maxTrade} max trade size` };
     }
     if (state.dayStartUsd && state.dayStartUsd > 0) {
       const lossPct = ((state.dayStartUsd - state.portfolioUsd) / state.dayStartUsd) * 100;

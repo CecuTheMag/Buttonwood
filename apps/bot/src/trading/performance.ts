@@ -4,6 +4,7 @@ import { fetchPrices, valuePortfolio } from './engine.ts';
 import * as store from './store.ts';
 import { describeStrategy } from './strategies.ts';
 import { formatWhaleStats, listWhales, whaleStats } from './whales.ts';
+import { getYield, yieldEarnedUsd } from './yield.ts';
 
 const DAY = 86_400_000;
 
@@ -78,6 +79,7 @@ export async function formatPerformance(): Promise<string> {
     `Just holding SOL: ${s.holdSolPct === null ? 'n/a yet' : pct(s.holdSolPct)}`,
     `Worst drop from a peak: ${s.drawdownPct.toFixed(1)}%`,
     `Trades: ${s.trades.length} · closed ${s.sells.length}${s.sells.length ? ` · win rate ${Math.round((s.wins / s.sells.length) * 100)}%` : ''} · fees ${usd(s.feesUsd)}`,
+    ...(getYield().enabled || yieldEarnedUsd() > 0 ? [`Simulated yield earned: ${usd(yieldEarnedUsd())} (included above)`] : []),
   ];
 
   // Realized PnL per source

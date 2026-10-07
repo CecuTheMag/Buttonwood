@@ -25,6 +25,12 @@
 - **Copy stop-loss**, and **auto-pause** for whales whose copies lose money
 - Measures the real cost of following: seconds behind the whale and how much worse a price you got
 
+**🧪 Strategy lab & tournament**
+- Strategies: **trend following**, **grid**, **rebalancing**, DCA, take-profit/stop-loss, each in its own budget ("sleeve") so results are attributable
+- **Backtester:** replay any strategy over months of real price history in seconds, with pessimistic costs, using the same code that trades live
+- **Tournament:** backtests everything, enters the best, and every week moves capital toward what's actually working; losers get benched
+- **Simulated yield** on idle cash and SOL
+
 **🛡 Risk manager**: every order, from any source, passes through it
 - Max trade size, max share of the portfolio in one token, **daily loss limit**, buys per hour, quote-vs-market sanity check
 - `/stop` kill switch that survives restarts
@@ -122,6 +128,7 @@ The essentials are below; the full reference is in [docs/telegram-bot.md](docs/t
 | `/buy SOL 10` · `/sell SOL 50` | Manual paper trades |
 | `/dca SOL 5 24` · `/tpsl SOL 15 8` · `/strategies` | Strategies |
 | `/autopilot` · `/candidates` · `/whales` · `/whale add <addr> <name>` · `/copy` | Whale following |
+| `/backtest trend SOL 90` · `/backtest all` · `/strategy` · `/tournament` · `/yield` | Strategy lab |
 | `/limits` · `/stop` · `/resume` | Risk controls |
 | `/balance` · `/fund` · `/withdraw` · `/transfers` | Wallets |
 | `/status` · `/help` | Health, help |
@@ -131,7 +138,8 @@ The essentials are below; the full reference is in [docs/telegram-bot.md](docs/t
 ```bash
 cd apps/bot
 npm run dev         # run locally, restart on changes
-npm test            # unit tests: strategies, risk manager, accounting, swap parser, performance math
+npm test            # unit tests: strategies, backtester, allocator, risk manager, accounting, swap parser, wallet scoring
+npm run backtest -- all 90
 npm run typecheck
 ```
 
@@ -154,6 +162,13 @@ apps/bot/
 │   │   ├── discovery.ts    finds and scores candidate whales
 │   │   ├── walletScore.ts  judges a wallet from its own trades (pure)
 │   │   ├── autopilot.ts    follows the best, drops idle and losing whales
+│   │   ├── strategyLib.ts  trend, grid, rebalancing (pure; shared by live and backtest)
+│   │   ├── sleeve.ts       per-strategy budgets and accounting (pure)
+│   │   ├── backtest.ts     backtester (pure)
+│   │   ├── allocator.ts    splits capital by results (pure)
+│   │   ├── tournament.ts   seeds, scores and rebalances strategies
+│   │   ├── candles.ts      hourly price history (GeckoTerminal + live)
+│   │   ├── yield.ts        simulated staking/lending yield
 │   │   ├── tokenInfo.ts    token safety check
 │   │   ├── performance.ts  stats, drawdown, readiness gate, daily report
 │   │   ├── jupiter.ts      quote client
@@ -161,7 +176,7 @@ apps/bot/
 │   ├── botWallet.ts        encrypted bot wallet, deposits, withdrawals
 │   ├── watcher.ts          Phantom wallet activity
 │   └── keystore.ts         AES-256-GCM + scrypt key encryption
-├── scripts/                create-wallet.ts, discover.ts (dry-run whale scan)
+├── scripts/                create-wallet.ts, discover.ts (dry-run whale scan), backtest.ts
 └── test/
 deploy/                     push.sh (deploy), install.sh (systemd service)
 docs/                       guides and design docs
@@ -173,6 +188,7 @@ docs/                       guides and design docs
 |---|---|
 | [Concepts](docs/concepts.md) | Wallets, keys, Solana, swaps and slippage, for beginners |
 | [Telegram bot](docs/telegram-bot.md) | Setup, every command, notifications, security rules |
+| [Strategies](docs/strategies.md) | Trend, grid, rebalancing, backtesting, the tournament, yield |
 | [Whale following](docs/whale-following.md) | How copying works, the safety check, auto-pause, the go-live gate |
 | [Security & risk](docs/security-and-risk.md) | Protecting keys, and how trading bots lose money |
 | [Architecture](docs/architecture.md) · [Trading engine](docs/trading-engine.md) · [Phantom integration](docs/phantom-integration.md) | Design |
@@ -180,7 +196,7 @@ docs/                       guides and design docs
 
 ## Status
 
-✅ Phantom watching · ✅ bot wallet (devnet) · ✅ paper trading + strategies · ✅ whale following + autopilot · ⏳ **real-money execution is not built yet, on purpose.** It comes after the paper record passes `/readiness`. See the [roadmap](docs/roadmap.md).
+✅ Phantom watching · ✅ bot wallet (devnet) · ✅ paper trading + strategies · ✅ whale following + autopilot · ✅ backtester + strategy tournament · ⏳ **real-money execution is not built yet, on purpose.** It comes after the paper record passes `/readiness`. See the [roadmap](docs/roadmap.md).
 
 ## Security
 

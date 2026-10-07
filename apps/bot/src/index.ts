@@ -6,6 +6,8 @@ import { loadState, saveState } from './state.ts';
 import { COMMANDS, createBot } from './telegram.ts';
 import { failingJobs, healthFailed, healthOk } from './health.ts';
 import { autopilotTick, getAutopilot } from './trading/autopilot.ts';
+import { pruneCandles } from './trading/candles.ts';
+import { getTournament, tournamentTick } from './trading/tournament.ts';
 import { runStrategies } from './trading/engine.ts';
 import { scheduledMessages } from './trading/performance.ts';
 import { pollWhales } from './trading/whales.ts';
@@ -37,7 +39,7 @@ async function status(): Promise<string> {
     rpc,
     config.phantomAddress ? '👀 Watching your Phantom wallet' : '⚠️ No Phantom address set (OWNER_PHANTOM_ADDRESS)',
     botKeypair ? `🤖 Bot wallet ${botKeypair.publicKey.toBase58()} · ${networkBanner}${await botRpcHealth()}` : '🤖 No bot wallet yet (npm run wallet:create)',
-    `Autopilot: ${getAutopilot().enabled ? 'on' : 'off'}`,
+    `Autopilot: ${getAutopilot().enabled ? 'on' : 'off'} · Tournament: ${getTournament().enabled ? 'on' : 'off'}`,
     failingJobs().length ? `⚠️ Failing: ${failingJobs().join(', ')}` : '✅ All background jobs healthy',
   ].join('\n');
 }
@@ -134,6 +136,14 @@ const autopilotJob = () => runJob('Autopilot', () => autopilotTick());
 const autopilotStart = setTimeout(autopilotJob, 2 * 60_000);
 const autopilotTimer = setInterval(autopilotJob, 10 * 60_000);
 
+// Strategy tournament: seeds itself when empty, rebalances capital weekly. First check 5 minutes after startup.
+const tournamentJob = () => runJob('Strategy tournament', async () => {
+  pruneCandles();
+  return tournamentTick();
+});
+const tournamentStart = setTimeout(tournamentJob, 5 * 60_000);
+const tournamentTimer = setInterval(tournamentJob, 15 * 60_000);
+
 // Heartbeat: lets the next start work out how long we were down.
 state.lastSeenAt = Date.now();
 saveState(state);
@@ -164,6 +174,8 @@ async function shutdown(signal: string) {
   clearInterval(whaleTimer);
   clearInterval(autopilotTimer);
   clearTimeout(autopilotStart);
+  clearInterval(tournamentTimer);
+  clearTimeout(tournamentStart);
   state.lastSeenAt = Date.now();
   state.cleanShutdown = true;
   saveState(state);

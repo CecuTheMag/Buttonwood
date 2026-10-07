@@ -39,6 +39,15 @@ The bot registers its own command menu on startup; no `/setcommands` needed.
 | `/limits` | Show risk limits · `/limits maxtrade 25` to change one |
 | `/stop` · `/resume` | 🛑 Kill switch for all trading (survives restarts) |
 
+### Strategy lab
+| Command | What it does |
+|---|---|
+| `/backtest trend SOL 90` | Replay a strategy on the last 90 days (trend · grid · rebalance), vs just holding |
+| `/backtest all 90` | Every strategy on every tournament token, ranked |
+| `/strategy trend SOL 200 [key=value…]` | Run a strategy with its own $200 budget |
+| `/tournament` | Standings · `seed` · `rebalance` · `on` · `off` · `pool 60` |
+| `/yield` | Simulated yield on idle cash/SOL · `on` · `off` · `usdc 4` · `sol 6` |
+
 ### Whale following
 | Command | What it does |
 |---|---|
@@ -70,6 +79,7 @@ The bot registers its own command menu on startup; no `/setcommands` needed.
 - 📄 Every paper trade, with the reason, route, fee, and remaining cash, and every trade the risk manager blocked
 - 🐋 Every copied whale trade, plus how many seconds behind and how much worse a price you got than the whale
 - 🐋⏸ A whale auto-paused for losing money
+- 🏆 Tournament: the lineup it picked and why, and the weekly capital rebalance
 - 🤖 Autopilot scan results: who it started following and why, or why nobody qualified
 - ⚠️ A background job (whale following, trading engine, wallet watching, autopilot) failing 5 times in a row, and ✅ when it recovers
 - 🗓 A daily report at 20:00 UTC (`REPORT_HOUR_UTC`)
