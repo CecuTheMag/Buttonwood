@@ -30,6 +30,8 @@ const COPY_KEYS: Record<string, { key: keyof CopySettings; label: string; min: n
   usd: { key: 'usdPerTrade', label: 'Default $ per copied buy', min: 1, max: 10_000 },
   minwhale: { key: 'minWhaleTradeUsd', label: 'Ignore whale trades under ($)', min: 0, max: 1_000_000 },
   delay: { key: 'maxCopyDelaySec', label: 'Max delay to copy a buy (s)', min: 10, max: 3600 },
+  latehours: { key: 'lateCopyMaxHours', label: 'Slow whales: copy buys up to (h) late', min: 0, max: 48 },
+  latedrift: { key: 'lateCopyMaxDriftPct', label: 'Slow whales: max price rise since their buy (%)', min: 0, max: 20 },
   liquidity: { key: 'minLiquidityUsd', label: 'Min token liquidity ($)', min: 10_000, max: 1_000_000_000 },
   holders: { key: 'minHolders', label: 'Min token holders', min: 0, max: 10_000_000 },
   tophold: { key: 'maxTopHoldersPct', label: 'Max % held by top holders', min: 5, max: 100 },

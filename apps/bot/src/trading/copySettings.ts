@@ -3,7 +3,9 @@ import { getSetting, setSetting } from './store.ts';
 export type CopySettings = {
   usdPerTrade: number;        // default size of each copied buy
   minWhaleTradeUsd: number;   // ignore whale trades smaller than this (noise, tests, dust)
-  maxCopyDelaySec: number;    // don't copy BUYS seen later than this (sells are always copied)
+  maxCopyDelaySec: number;    // don't copy BUYS seen later than this (sells are always copied)…
+  lateCopyMaxHours: number;   // …except from slow whales (median hold ≥ 1 day): up to this late…
+  lateCopyMaxDriftPct: number; // …if the price is at most this much above what the whale paid
   minLiquidityUsd: number;    // token safety
   minHolders: number;
   maxTopHoldersPct: number;
@@ -18,6 +20,8 @@ export const DEFAULT_COPY: CopySettings = {
   usdPerTrade: 20,
   minWhaleTradeUsd: 200,
   maxCopyDelaySec: 120,
+  lateCopyMaxHours: 12,
+  lateCopyMaxDriftPct: 3,
   minLiquidityUsd: 250_000,
   minHolders: 500,
   maxTopHoldersPct: 60,

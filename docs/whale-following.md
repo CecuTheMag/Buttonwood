@@ -28,7 +28,7 @@ flowchart TB
 
 **One copy per token per whale.** Bots and big wallets often buy in many small pieces. Buttonwood copies the *first* buy and treats the rest as the whale adding to its position. (Tested live: a bot made ~20 buys of one token in two minutes; Buttonwood copied it once.)
 
-**Late buys aren't copied.** After downtime, or if polling falls behind, buys older than `maxCopyDelaySec` (default 120s) are reported but not copied. **Sells are always copied**, because getting out is never too late.
+**Late buys.** Normally a buy seen more than 120 seconds late isn't copied. **Exception for slow whales** (median hold ≥ 1 day, from their scored history): a buy up to 12 hours late is still copied *if the price is at most 3% above what the whale paid*. Being hours late barely matters for someone who holds for a week; chasing a token that already ran does. (Found in practice: the server is off at night, and a 12-day-hold whale bought CLOUD and JTO overnight. CLOUD was +1.2% by morning, a fine copy. JTO was +9.3%, which would be chasing.) Tune with `/copy latehours` and `/copy latedrift`. **Sells are always copied**, because getting out is never too late.
 
 ## Token safety check
 

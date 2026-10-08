@@ -81,6 +81,16 @@ export function addWhale(address: string, label: string, usdPerTrade: number | n
 }
 
 /** Last time we saw this whale trade at all (any signal), or null. */
+/** Median hold time from the whale's scored history (autopilot whales), or null if unknown. */
+function whaleMedianHoldMin(address: string): number | null {
+  try {
+    const row = db.prepare('SELECT stats FROM whale_candidates WHERE address = ?').get(address) as { stats: string } | undefined;
+    return row ? (JSON.parse(row.stats).medianHoldMin as number) : null;
+  } catch {
+    return null; // candidates table not created yet
+  }
+}
+
 export const lastWhaleActivity = (address: string) =>
   (db.prepare('SELECT MAX(seen_at) AS t FROM whale_signals WHERE whale = ?').get(address) as { t: number | null }).t;
 export const removeWhale = (address: string) => db.prepare('DELETE FROM whales WHERE address = ?').run(address).changes > 0;
@@ -196,10 +206,23 @@ export async function pollWhales(): Promise<string[]> {
             recordSignal({ ...base, action: 'ignored', detail: 'already holding a copy (whale adding to position)', delaySec });
             continue;
           }
+          let lateNote = '';
           if (delaySec > settings.maxCopyDelaySec) {
-            recordSignal({ ...base, action: 'skipped', detail: `seen ${Math.round(delaySec)}s late`, delaySec });
-            skipped.push(`• bought ${usd(whaleUsd)} of ${symbolOf(signal.mint)} ${Math.round(delaySec / 60)} min ago: too late to copy`);
-            continue;
+            // Late. For a whale that holds for days, hours late can still be fine, as long as the price
+            // hasn't run away from what they paid. Otherwise we'd just be chasing.
+            const holdMin = whaleMedianHoldMin(whale.address);
+            const now = prices.get(signal.mint);
+            const drift = now !== undefined && whalePrice > 0 ? (now / whalePrice - 1) * 100 : Infinity;
+            const slowWhale = holdMin !== null && holdMin >= 24 * 60;
+            if (!slowWhale || delaySec > settings.lateCopyMaxHours * 3600 || drift > settings.lateCopyMaxDriftPct) {
+              const why = !slowWhale ? 'too late to copy'
+                : delaySec > settings.lateCopyMaxHours * 3600 ? `too late (over ${settings.lateCopyMaxHours}h)`
+                : `price already ${drift >= 0 ? '+' : ''}${drift.toFixed(1)}% above their buy: not chasing`;
+              recordSignal({ ...base, action: 'skipped', detail: `seen ${Math.round(delaySec)}s late: ${why}`, delaySec });
+              skipped.push(`• bought ${usd(whaleUsd)} of ${symbolOf(signal.mint)} ${(delaySec / 3600).toFixed(1)}h ago: ${why}`);
+              continue;
+            }
+            lateNote = ` (late copy: ${(delaySec / 3600).toFixed(1)}h after them, price only ${drift >= 0 ? '+' : ''}${drift.toFixed(1)}% since; they usually hold ${(holdMin! / 1440).toFixed(0)}+ days)`;
           }
           const verdict = await vetToken(signal.mint, settings);
           if (!verdict.safe) {
@@ -213,7 +236,7 @@ export async function pollWhales(): Promise<string[]> {
             ...base, signal, delaySec,
             order: {
               side: 'buy', token, amount: whale.usdPerTrade ?? settings.usdPerTrade, strategyId: null, whale: whale.address, vetted: true,
-              reason: `Copying ${whale.label}: they bought ${usd(whaleUsd)} of ${token.symbol} ${Math.round(delaySec)}s earlier`,
+              reason: `Copying ${whale.label}: they bought ${usd(whaleUsd)} of ${token.symbol} ${Math.round(delaySec)}s earlier${lateNote}`,
             },
           });
         } else {
